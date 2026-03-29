@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vpn_bot_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.api
+    container_name: vpn_bot_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+    ports:
+      - "${API_PORT:-8080}:8080"
+
+  bot:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.bot
+    container_name: vpn_bot_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
