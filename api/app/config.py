@@ -27,6 +27,10 @@ class Settings(BaseSettings):
 
     marzban_default_protocol: str = 'vless'
     marzban_default_inbound_tag: str = 'VLESS TCP'
+    marzban_vless_protocol: str = 'vless'
+    marzban_vless_inbound_tag: str = 'VLESS TCP'
+    marzban_hysteria_protocol: str = 'hysteria2'
+    marzban_hysteria_inbound_tag: str = 'HYSTERIA 2'
     marzban_sub_fallback: str = ''
 
     plan_starter_price: int = 199
@@ -50,3 +54,4 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+

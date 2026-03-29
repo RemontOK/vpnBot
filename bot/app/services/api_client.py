@@ -1,4 +1,4 @@
-import httpx
+﻿import httpx
 
 from ..config import settings
 
@@ -30,12 +30,6 @@ class BackendClient:
     async def get_order(self, order_id: str) -> dict:
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.get(f'{self.base_url}/api/orders/{order_id}')
-            response.raise_for_status()
-            return response.json()
-
-    async def demo_pay(self, order_id: str) -> dict:
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.post(f'{self.base_url}/api/orders/{order_id}/demo-pay')
             response.raise_for_status()
             return response.json()
 

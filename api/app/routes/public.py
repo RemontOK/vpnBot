@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+﻿from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -9,9 +9,11 @@ from ..database import get_db
 from ..models import Customer, Order, OrderStatus, Plan
 from ..schemas import OrderCreateIn, OrderOut, PlanOut, ProfileOut
 from ..services.marzban import MarzbanClient
+from ..services.yookassa import YooKassaClient
 
 router = APIRouter(prefix='/api', tags=['public'])
 marzban = MarzbanClient()
+yookassa = YooKassaClient()
 
 
 @router.get('/health')
@@ -56,34 +58,29 @@ async def create_order(payload: OrderCreateIn, db: AsyncSession = Depends(get_db
     order = Order(
         customer_id=customer.id,
         plan_id=plan.id,
+        protocol='multi',
         amount_rub=plan.price_rub,
         status=OrderStatus.pending,
-        yookassa_payment_id=f'demo-{customer.telegram_id}-{int(datetime.now(timezone.utc).timestamp())}',
-        yookassa_confirmation_url='demo://checkout',
+        yookassa_payment_id=f'draft-{customer.telegram_id}-{int(datetime.now(timezone.utc).timestamp())}',
+        yookassa_confirmation_url=None,
     )
     db.add(order)
+    await db.flush()
+
+    payment = await yookassa.create_payment(
+        order_id=order.id,
+        amount_rub=plan.price_rub,
+        description=f'{plan.title} / VLESS+HYSTERIA / tg:{customer.telegram_id}',
+    )
+
+    order.yookassa_payment_id = payment['id']
+    order.yookassa_confirmation_url = payment.get('confirmation', {}).get('confirmation_url')
+    order.status = _map_payment_status(payment.get('status', 'pending'))
+
     await db.commit()
     await db.refresh(order)
 
     return _to_order_out(order, plan)
-
-
-@router.post('/orders/{order_id}/demo-pay', response_model=OrderOut)
-async def demo_pay_order(order_id: str, db: AsyncSession = Depends(get_db)) -> OrderOut:
-    order = await db.scalar(
-        select(Order)
-        .where(Order.id == order_id)
-        .options(selectinload(Order.plan), selectinload(Order.customer))
-    )
-    if not order:
-        raise HTTPException(status_code=404, detail='Order not found')
-
-    if order.status != OrderStatus.paid:
-        await _provision_order(order)
-        await db.commit()
-        await db.refresh(order)
-
-    return _to_order_out(order, order.plan)
 
 
 @router.get('/orders/{order_id}', response_model=OrderOut)
@@ -95,6 +92,11 @@ async def order_status(order_id: str, db: AsyncSession = Depends(get_db)) -> Ord
     )
     if not order:
         raise HTTPException(status_code=404, detail='Order not found')
+
+    if order.status in {OrderStatus.pending, OrderStatus.waiting_for_capture}:
+        await _sync_order_payment(order)
+        await db.commit()
+        await db.refresh(order)
 
     return _to_order_out(order, order.plan)
 
@@ -142,15 +144,36 @@ async def _get_or_create_customer(
 
 
 async def _provision_order(order: Order) -> None:
-    provision = await marzban.create_user(
-        telegram_id=order.customer.telegram_id,
-        duration_days=order.plan.duration_days,
-        data_limit_gb=order.plan.data_limit_gb,
-    )
+    if not order.vless_subscription_url:
+        vless = await marzban.create_user(
+            telegram_id=order.customer.telegram_id,
+            duration_days=order.plan.duration_days,
+            data_limit_gb=order.plan.data_limit_gb,
+            protocol='vless',
+        )
+        order.vless_username = vless['username']
+        order.vless_subscription_url = vless['subscription_url']
+
+    if not order.hysteria_subscription_url:
+        hysteria = await marzban.create_user(
+            telegram_id=order.customer.telegram_id,
+            duration_days=order.plan.duration_days,
+            data_limit_gb=order.plan.data_limit_gb,
+            protocol='hysteria',
+        )
+        order.hysteria_username = hysteria['username']
+        order.hysteria_subscription_url = hysteria['subscription_url']
+
     order.status = OrderStatus.paid
-    order.marzban_username = provision['username']
-    order.marzban_subscription_url = provision['subscription_url']
-    order.paid_at = datetime.now(timezone.utc)
+    if not order.paid_at:
+        order.paid_at = datetime.now(timezone.utc)
+
+
+async def _sync_order_payment(order: Order) -> None:
+    payment = await yookassa.get_payment(order.yookassa_payment_id)
+    order.status = _map_payment_status(payment.get('status', 'pending'))
+    if order.status == OrderStatus.paid:
+        await _provision_order(order)
 
 
 async def _build_profile(customer: Customer) -> ProfileOut | None:
@@ -164,13 +187,10 @@ async def _build_profile(customer: Customer) -> ProfileOut | None:
     days_left = max(0, (expires_at - now).days)
     status = 'active' if expires_at > now else 'expired'
 
-    if latest.marzban_username:
-        user = await marzban.get_user(latest.marzban_username)
-        if not user:
-            return ProfileOut(has_subscription=False, status='inactive')
-        remote_status = user.get('status')
-        if remote_status and remote_status != 'active':
-            return ProfileOut(has_subscription=False, status='inactive')
+    if latest.vless_username:
+        user = await marzban.get_user(latest.vless_username)
+        if not user or (user.get('status') and user.get('status') != 'active'):
+            status = 'inactive'
 
     return ProfileOut(
         has_subscription=True,
@@ -181,8 +201,10 @@ async def _build_profile(customer: Customer) -> ProfileOut | None:
         amount_rub=latest.amount_rub,
         days_left=days_left,
         expires_at=expires_at,
-        subscription_url=latest.marzban_subscription_url,
-        marzban_username=latest.marzban_username,
+        vless_subscription_url=latest.vless_subscription_url,
+        vless_username=latest.vless_username,
+        hysteria_subscription_url=latest.hysteria_subscription_url,
+        hysteria_username=latest.hysteria_username,
         auto_renew_enabled=False,
     )
 
@@ -192,12 +214,26 @@ def _to_order_out(order: Order, plan: Plan) -> OrderOut:
         id=order.id,
         status=order.status,
         amount_rub=order.amount_rub,
+        protocol='multi',
         plan_title=plan.title,
         duration_days=plan.duration_days,
         data_limit_gb=plan.data_limit_gb,
         confirmation_url=order.yookassa_confirmation_url,
-        subscription_url=order.marzban_subscription_url,
-        marzban_username=order.marzban_username,
+        vless_subscription_url=order.vless_subscription_url,
+        vless_username=order.vless_username,
+        hysteria_subscription_url=order.hysteria_subscription_url,
+        hysteria_username=order.hysteria_username,
         paid_at=order.paid_at,
         created_at=order.created_at,
     )
+
+
+def _map_payment_status(status: str) -> OrderStatus:
+    normalized = (status or '').strip().lower()
+    if normalized == 'succeeded':
+        return OrderStatus.paid
+    if normalized == 'waiting_for_capture':
+        return OrderStatus.waiting_for_capture
+    if normalized == 'canceled':
+        return OrderStatus.canceled
+    return OrderStatus.pending

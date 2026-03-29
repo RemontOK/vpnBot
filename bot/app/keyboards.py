@@ -1,4 +1,4 @@
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+﻿from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
 
 V2RAYN_RELEASES_URL = 'https://github.com/2dust/v2rayN/releases/latest'
@@ -11,8 +11,8 @@ HIDDIFY_IOS_URL = 'https://apps.apple.com/us/app/hiddify-proxy-vpn/id6596777532'
 def main_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text='\U0001F464 Мой профиль'), KeyboardButton(text='\U0001F4B3 Купить подписку')],
-            [KeyboardButton(text='\U0001F4F1 Приложения'), KeyboardButton(text='\u2753 Помощь')],
+            [KeyboardButton(text='👤 Мой профиль'), KeyboardButton(text='💳 Купить подписку')],
+            [KeyboardButton(text='📱 Приложения'), KeyboardButton(text='❓ Помощь')],
         ],
         resize_keyboard=True,
     )
@@ -23,8 +23,20 @@ def plans_keyboard(plans: list[dict]) -> InlineKeyboardMarkup:
     for plan in plans:
         text = f"{plan['emoji']} {plan['title']} | {plan['price_rub']} RUB | {plan['duration_days']} дн"
         rows.append([InlineKeyboardButton(text=text, callback_data=f"buy:{plan['id']}")])
-    rows.append([InlineKeyboardButton(text='\U0001F519 В главное меню', callback_data='menu:main')])
+    rows.append([InlineKeyboardButton(text='⬅ В главное меню', callback_data='menu:main')])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def protocol_keyboard(plan_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text='VLESS', callback_data=f'buy:{plan_id}:vless'),
+                InlineKeyboardButton(text='Hysteria', callback_data=f'buy:{plan_id}:hysteria'),
+            ],
+            [InlineKeyboardButton(text='⬅ Назад', callback_data='menu:plans')],
+        ]
+    )
 
 
 def apps_keyboard() -> InlineKeyboardMarkup:
@@ -39,27 +51,18 @@ def apps_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def demo_checkout_keyboard(order_id: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text='\U0001F4B3 Оплатить картой', callback_data=f'demo:show:{order_id}')],
-            [InlineKeyboardButton(text='\U0001F519 Назад', callback_data='menu:plans')],
-        ]
-    )
-
-
-def demo_payment_confirm_keyboard(order_id: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text='\u2705 Я оплатил', callback_data=f'demo:pay:{order_id}')],
-            [InlineKeyboardButton(text='\U0001F50E Проверить оплату', callback_data=f'check:{order_id}')],
-        ]
-    )
+def checkout_keyboard(order_id: str, confirmation_url: str | None) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if confirmation_url:
+        rows.append([InlineKeyboardButton(text='💳 Оплатить', url=confirmation_url)])
+    rows.append([InlineKeyboardButton(text='🔄 Проверить оплату', callback_data=f'check:{order_id}')])
+    rows.append([InlineKeyboardButton(text='⬅ Назад', callback_data='menu:plans')])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def profile_actions_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text='\U0001F519 В главное меню', callback_data='menu:main')],
+            [InlineKeyboardButton(text='⬅ В главное меню', callback_data='menu:main')],
         ]
     )

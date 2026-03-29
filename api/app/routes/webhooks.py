@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+﻿from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -29,18 +29,42 @@ async def yookassa_webhook(payload: YooKassaWebhookEvent, db: AsyncSession = Dep
     if not order:
         return {'ok': True, 'skipped': 'order not found'}
 
-    status = payment_object.get('status', 'pending')
-    order.status = OrderStatus(status)
+    status = (payment_object.get('status') or 'pending').lower()
+    order.status = _map_payment_status(status)
 
-    if order.status == OrderStatus.paid and not order.marzban_subscription_url:
-        provision = await marzban.create_user(
-            telegram_id=order.customer.telegram_id,
-            duration_days=order.plan.duration_days,
-            data_limit_gb=order.plan.data_limit_gb,
-        )
-        order.marzban_username = provision['username']
-        order.marzban_subscription_url = provision['subscription_url']
-        order.paid_at = datetime.now(timezone.utc)
+    if order.status == OrderStatus.paid:
+        if not order.vless_subscription_url:
+            vless = await marzban.create_user(
+                telegram_id=order.customer.telegram_id,
+                duration_days=order.plan.duration_days,
+                data_limit_gb=order.plan.data_limit_gb,
+                protocol='vless',
+            )
+            order.vless_username = vless['username']
+            order.vless_subscription_url = vless['subscription_url']
+
+        if not order.hysteria_subscription_url:
+            hysteria = await marzban.create_user(
+                telegram_id=order.customer.telegram_id,
+                duration_days=order.plan.duration_days,
+                data_limit_gb=order.plan.data_limit_gb,
+                protocol='hysteria',
+            )
+            order.hysteria_username = hysteria['username']
+            order.hysteria_subscription_url = hysteria['subscription_url']
+
+        if not order.paid_at:
+            order.paid_at = datetime.now(timezone.utc)
 
     await db.commit()
     return {'ok': True}
+
+
+def _map_payment_status(status: str) -> OrderStatus:
+    if status == 'succeeded':
+        return OrderStatus.paid
+    if status == 'waiting_for_capture':
+        return OrderStatus.waiting_for_capture
+    if status == 'canceled':
+        return OrderStatus.canceled
+    return OrderStatus.pending

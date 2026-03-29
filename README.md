@@ -1,79 +1,95 @@
-# VPN Bot + YooKassa
+﻿# VPN Bot + YooKassa
 
-Отдельный проект Telegram-бота для продажи VPN-подписок через Marzban с приемом оплаты через ЮKassa.
+Telegram bot for selling VPN subscriptions through YooKassa with automatic account provisioning in Marzban.
 
-## Что уже реализовано (MVP)
-- Telegram-бот (aiogram) с красивыми кнопками и emoji
-- Выбор тарифа из базы
-- Создание платежа в ЮKassa
-- Кнопка оплаты + кнопка проверки оплаты
-- API (FastAPI) + PostgreSQL
-- Автоматическая выдача VPN-подписки через Marzban API после оплаты
-- Webhook endpoint для ЮKassa: `/api/webhooks/yookassa`
+## Features
 
-## Структура
-- `bot/` — Telegram bot
-- `api/` — backend API
-- `infra/` — Dockerfiles
-- `docker-compose.yml` — запуск всего проекта
+- Telegram bot on aiogram
+- FastAPI backend
+- PostgreSQL storage
+- YooKassa payment flow
+- Manual payment check button
+- Automatic Marzban user creation after payment
+- One payment gives access to both `VLESS` and `Hysteria`
 
-## Быстрый старт
-1. Перейди в каталог проекта:
-```bash
-cd vpn-bot-yookassa
-```
+## Project structure
 
-2. Создай env:
+- `bot/` - Telegram bot
+- `api/` - backend API
+- `infra/` - Dockerfiles
+- `docker-compose.yml` - local stack
+
+## Quick start
+
+1. Create env file:
+
 ```bash
 cp .env.example .env
 ```
 
-3. Заполни `.env`:
+2. Fill required values:
+
 - `TELEGRAM_BOT_TOKEN`
 - `YOOKASSA_SHOP_ID`
 - `YOOKASSA_SECRET_KEY`
 - `YOOKASSA_RETURN_URL`
 - `MARZBAN_*`
 
-4. Запусти сервисы:
+3. Start services:
+
 ```bash
 docker compose up -d --build
 ```
 
-5. Проверь API:
+4. Check API:
+
 ```bash
 curl http://localhost:8080/api/health
 ```
 
-## Настройка YooKassa webhook
-В личном кабинете ЮKassa укажи URL:
-`https://YOUR_DOMAIN/api/webhooks/yookassa`
+## YooKassa webhook
 
-Нужен внешний HTTPS-домен, доступный из интернета.
+Set this URL in YooKassa:
 
-## Подключение к реальному Marzban
-По умолчанию включен mock режим:
+```text
+https://YOUR_DOMAIN/api/webhooks/yookassa
+```
+
+You need public HTTPS access for production webhook delivery.
+
+## Marzban integration
+
+Mock mode is enabled by default:
+
 ```env
 MARZBAN_USE_MOCK=true
 ```
 
-Для реального подключения:
+For real Marzban:
+
 ```env
 MARZBAN_USE_MOCK=false
 MARZBAN_BASE_URL=http://YOUR_SERVER:8000
+MARZBAN_PUBLIC_BASE_URL=https://YOUR_PUBLIC_PANEL
 MARZBAN_USERNAME=...
 MARZBAN_PASSWORD=...
-MARZBAN_DEFAULT_PROTOCOL=vless
-MARZBAN_DEFAULT_INBOUND_TAG=VLESS TCP
+MARZBAN_VLESS_PROTOCOL=vless
+MARZBAN_VLESS_INBOUND_TAG=VLESS TCP
+MARZBAN_HYSTERIA_PROTOCOL=hysteria2
+MARZBAN_HYSTERIA_INBOUND_TAG=HYSTERIA 2
 ```
 
-## Команды бота
-- `/start` — меню
-- `/plans` — выбор тарифа
-- `/help` — помощь
-- `/support` — контакты поддержки
+The inbound tag names must match the actual inbound names in your Marzban panel.
 
-## Важно по безопасности
-- Никогда не публикуй токены/секреты
-- Если токен попал в чат, сразу перевыпусти его
-- Для прода используй reverse-proxy (Caddy/Nginx) + HTTPS
+## Bot flow
+
+1. User chooses a plan.
+2. Bot creates a payment.
+3. After payment confirmation, backend creates both Marzban users: `VLESS` and `Hysteria`.
+4. User can open profile anytime and copy either link while subscription is active.
+
+## Security notes
+
+- Do not commit bot tokens or YooKassa secrets unless you explicitly accept the risk.
+- Rotate secrets immediately if they were exposed.
+- Use HTTPS for production webhook and panel URLs.

@@ -1,4 +1,4 @@
-import uuid
+﻿import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, Field
@@ -27,12 +27,15 @@ class OrderOut(BaseModel):
     id: uuid.UUID
     status: OrderStatus
     amount_rub: int
+    protocol: str = Field(default='multi')
     plan_title: str | None = Field(default=None)
     duration_days: int | None = Field(default=None)
     data_limit_gb: int | None = Field(default=None)
     confirmation_url: str | None = Field(default=None)
-    subscription_url: str | None = Field(default=None)
-    marzban_username: str | None = Field(default=None)
+    vless_subscription_url: str | None = Field(default=None)
+    vless_username: str | None = Field(default=None)
+    hysteria_subscription_url: str | None = Field(default=None)
+    hysteria_username: str | None = Field(default=None)
     paid_at: datetime | None = Field(default=None)
     created_at: datetime
 
@@ -46,8 +49,10 @@ class ProfileOut(BaseModel):
     amount_rub: int | None = None
     days_left: int | None = None
     expires_at: datetime | None = None
-    subscription_url: str | None = None
-    marzban_username: str | None = None
+    vless_subscription_url: str | None = None
+    vless_username: str | None = None
+    hysteria_subscription_url: str | None = None
+    hysteria_username: str | None = None
     auto_renew_enabled: bool = False
 
 

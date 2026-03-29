@@ -12,17 +12,20 @@ class MarzbanClient:
     def __init__(self) -> None:
         self._token: str | None = None
 
-    async def create_user(self, telegram_id: int, duration_days: int, data_limit_gb: int) -> dict:
+    async def create_user(self, telegram_id: int, duration_days: int, data_limit_gb: int, protocol: str) -> dict:
         if settings.marzban_use_mock:
             username = self._username(telegram_id)
             return {
                 'username': username,
                 'subscription_url': f'https://example.com/sub/{username}',
+                'protocol': protocol,
             }
 
         token = await self._get_token()
         username = self._username(telegram_id)
         expire_ts = int((datetime.now(timezone.utc) + timedelta(days=duration_days)).timestamp())
+
+        marzban_protocol, inbound_tag = self._resolve_protocol(protocol)
 
         payload = {
             'username': username,
@@ -30,8 +33,8 @@ class MarzbanClient:
             'expire': expire_ts,
             'data_limit': data_limit_gb * 1024 * 1024 * 1024,
             'data_limit_reset_strategy': 'no_reset',
-            'proxies': {settings.marzban_default_protocol: {}},
-            'inbounds': {settings.marzban_default_protocol: [settings.marzban_default_inbound_tag]},
+            'proxies': {marzban_protocol: {}},
+            'inbounds': {marzban_protocol: [inbound_tag]},
         }
 
         async with httpx.AsyncClient(timeout=20) as client:
@@ -47,7 +50,7 @@ class MarzbanClient:
         if sub_url and sub_url.startswith('/'):
             public_base = settings.marzban_public_base_url or settings.marzban_base_url
             sub_url = urljoin(f'{public_base}/', sub_url.lstrip('/'))
-        return {'username': username, 'subscription_url': sub_url}
+        return {'username': username, 'subscription_url': sub_url, 'protocol': protocol}
 
     async def get_user(self, username: str) -> dict | None:
         if settings.marzban_use_mock:
@@ -88,3 +91,10 @@ class MarzbanClient:
     def _username(telegram_id: int) -> str:
         suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
         return f'tg{telegram_id}_{suffix}'
+
+    def _resolve_protocol(self, protocol: str) -> tuple[str, str]:
+        normalized = (protocol or '').strip().lower()
+        if normalized == 'hysteria':
+            return settings.marzban_hysteria_protocol, settings.marzban_hysteria_inbound_tag
+        return settings.marzban_vless_protocol, settings.marzban_vless_inbound_tag
+

@@ -1,18 +1,11 @@
-from datetime import datetime
+﻿from datetime import datetime
 
 import httpx
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
-from ..keyboards import (
-    apps_keyboard,
-    demo_checkout_keyboard,
-    demo_payment_confirm_keyboard,
-    main_menu,
-    plans_keyboard,
-    profile_actions_keyboard,
-)
+from ..keyboards import apps_keyboard, checkout_keyboard, main_menu, plans_keyboard, profile_actions_keyboard
 from ..services.api_client import BackendClient
 from ..texts import APPS_TEXT, HELP_TEXT, SUPPORT_TEXT, WELCOME_TEXT
 
@@ -26,14 +19,11 @@ async def start(message: Message) -> None:
 
 
 @router.message(Command('plans'))
-@router.message(F.text == '\U0001F4B3 Купить подписку')
+@router.message(F.text == '💳 Купить подписку')
 async def show_plans(message: Message) -> None:
     profile_data = await api.get_profile(message.from_user.id)
     if profile_data['has_subscription'] and profile_data['status'] == 'active':
-        await message.answer(
-            'Подписка уже активна. Ниже текущая конфигурация.',
-            reply_markup=main_menu(),
-        )
+        await message.answer('У вас уже есть активная подписка. Ниже текущий профиль.', reply_markup=main_menu())
         await message.answer(
             _format_profile(profile_data),
             parse_mode='HTML',
@@ -44,13 +34,13 @@ async def show_plans(message: Message) -> None:
 
     plans = await api.get_plans()
     await message.answer(
-        '<b>Подписка</b>\nВыбери вариант покупки:',
+        '<b>Тарифы</b>\nПосле оплаты будут доступны обе ссылки: VLESS и Hysteria.',
         parse_mode='HTML',
         reply_markup=plans_keyboard(plans),
     )
 
 
-@router.message(F.text == '\U0001F464 Мой профиль')
+@router.message(F.text == '👤 Мой профиль')
 async def profile(message: Message) -> None:
     await message.answer(
         _format_profile(await api.get_profile(message.from_user.id)),
@@ -60,13 +50,13 @@ async def profile(message: Message) -> None:
     )
 
 
-@router.message(F.text == '\U0001F4F1 Приложения')
+@router.message(F.text == '📱 Приложения')
 async def apps(message: Message) -> None:
     await message.answer(APPS_TEXT, parse_mode='HTML', reply_markup=apps_keyboard(), disable_web_page_preview=True)
 
 
 @router.message(Command('support'))
-@router.message(F.text == '\u2753 Помощь')
+@router.message(F.text == '❓ Помощь')
 async def support(message: Message) -> None:
     await message.answer(HELP_TEXT + '\n\n' + SUPPORT_TEXT, parse_mode='HTML')
 
@@ -81,10 +71,7 @@ async def menu_main(callback: CallbackQuery) -> None:
 async def menu_plans(callback: CallbackQuery) -> None:
     profile_data = await api.get_profile(callback.from_user.id)
     if profile_data['has_subscription'] and profile_data['status'] == 'active':
-        await callback.message.answer(
-            'Подписка уже активна. Ниже текущая конфигурация.',
-            reply_markup=main_menu(),
-        )
+        await callback.message.answer('У вас уже есть активная подписка. Ниже текущий профиль.', reply_markup=main_menu())
         await callback.message.answer(
             _format_profile(profile_data),
             parse_mode='HTML',
@@ -96,14 +83,14 @@ async def menu_plans(callback: CallbackQuery) -> None:
 
     plans = await api.get_plans()
     await callback.message.answer(
-        '<b>Подписка</b>\nВыбери вариант покупки:',
+        '<b>Тарифы</b>\nПосле оплаты будут доступны обе ссылки: VLESS и Hysteria.',
         parse_mode='HTML',
         reply_markup=plans_keyboard(plans),
     )
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith('buy:'))
+@router.callback_query(F.data.regexp(r'^buy:\d+$'))
 async def buy_plan(callback: CallbackQuery) -> None:
     plan_id = int(callback.data.split(':')[1])
     try:
@@ -117,10 +104,7 @@ async def buy_plan(callback: CallbackQuery) -> None:
         if exc.response.status_code == 409:
             payload = exc.response.json()
             profile_data = payload['detail']['profile']
-            await callback.message.answer(
-                'Подписка уже активна. Повторная покупка сейчас не нужна.',
-                reply_markup=main_menu(),
-            )
+            await callback.message.answer('У вас уже есть активная подписка. Показываю текущий профиль.', reply_markup=main_menu())
             await callback.message.answer(
                 _format_profile(profile_data),
                 parse_mode='HTML',
@@ -133,46 +117,17 @@ async def buy_plan(callback: CallbackQuery) -> None:
 
     await callback.message.answer(
         (
-            '<b>Окно оплаты</b>\n\n'
-            f"Подписка: <b>{order['plan_title']}</b>\n"
+            '<b>Новый заказ</b>\n\n'
+            f"Тариф: <b>{order['plan_title']}</b>\n"
+            'Доступ после оплаты: <b>VLESS + Hysteria</b>\n'
             f"Срок: {order['duration_days']} дн.\n"
             f"К оплате: <b>{order['amount_rub']} RUB</b>\n\n"
-            'Нажми оплатить картой. В demo-режиме после этого можно сразу подтвердить оплату.'
+            'После оплаты в профиле будут доступны обе ссылки.'
         ),
         parse_mode='HTML',
-        reply_markup=demo_checkout_keyboard(str(order['id'])),
+        reply_markup=checkout_keyboard(str(order['id']), order.get('confirmation_url')),
     )
     await callback.answer()
-
-
-@router.callback_query(F.data.startswith('demo:show:'))
-async def show_demo_payment(callback: CallbackQuery) -> None:
-    order_id = callback.data.split(':', 2)[2]
-    await callback.message.answer(
-        (
-            '<b>Demo payment gateway</b>\n\n'
-            'Банк: Demo Bank\n'
-            'Карта: 2200 00** **** 4242\n'
-            'Статус: ожидает подтверждения\n\n'
-            'Нажми <b>Я оплатил</b>, чтобы имитировать успешный платеж.'
-        ),
-        parse_mode='HTML',
-        reply_markup=demo_payment_confirm_keyboard(order_id),
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith('demo:pay:'))
-async def demo_pay(callback: CallbackQuery) -> None:
-    order_id = callback.data.split(':', 2)[2]
-    order = await api.demo_pay(order_id)
-    await callback.message.answer(
-        _format_order_success(order),
-        parse_mode='HTML',
-        reply_markup=profile_actions_keyboard(),
-        disable_web_page_preview=True,
-    )
-    await callback.answer('Подписка активирована')
 
 
 @router.callback_query(F.data.startswith('check:'))
@@ -180,15 +135,17 @@ async def check_payment(callback: CallbackQuery) -> None:
     order_id = callback.data.split(':', 1)[1]
     order = await api.get_order(order_id)
 
-    if order['status'] == 'paid' and order.get('subscription_url'):
+    if order['status'] == 'paid' and (order.get('vless_subscription_url') or order.get('hysteria_subscription_url')):
         await callback.message.answer(
             _format_order_success(order),
             parse_mode='HTML',
             reply_markup=profile_actions_keyboard(),
             disable_web_page_preview=True,
         )
+    elif order['status'] == 'canceled':
+        await callback.message.answer('Платеж отменён. Создайте новый заказ и попробуйте снова.')
     else:
-        await callback.message.answer('Платеж еще не подтвержден. Нажми кнопку оплаты и заверши demo-оплату.')
+        await callback.message.answer('Платёж ещё не подтверждён. Если вы уже оплатили, нажмите кнопку позже ещё раз.')
 
     await callback.answer()
 
@@ -196,34 +153,64 @@ async def check_payment(callback: CallbackQuery) -> None:
 def _format_profile(profile_data: dict) -> str:
     if not profile_data['has_subscription']:
         return (
-            '<b>Ваш профиль</b>\n\n'
-            'Подписка еще не оформлена.\n'
-            'Нажми <b>Купить подписку</b>, чтобы получить конфигурацию.'
+            '<b>У вас нет подписки</b>\n\n'
+            'Активная подписка пока не найдена.\n'
+            'Нажмите <b>Купить подписку</b>, чтобы оформить доступ.'
         )
 
     expires_at = _format_dt(profile_data.get('expires_at'))
+    parts = [
+        '<b>Ваш профиль</b>\n',
+        f"Тариф: {profile_data['plan_title']}",
+        f"Дней осталось: {profile_data['days_left']}",
+        f"Действует до: {expires_at}",
+        '',
+        '<b>Ссылки для подключения</b>',
+    ]
 
-    return (
-        '<b>Ваш профиль</b>\n\n'
-        f"Подписка: {profile_data['plan_title']}\n"
-        f"Осталось дней: {profile_data['days_left']}\n\n"
-        'Ваша конфигурация:\n'
-        f"<code>{profile_data['subscription_url']}</code>\n\n"
-        f"Дата окончания: {expires_at}"
-    )
+    if profile_data.get('vless_subscription_url'):
+        parts.extend([
+            'VLESS:',
+            f"<code>{profile_data['vless_subscription_url']}</code>",
+            '',
+        ])
+
+    if profile_data.get('hysteria_subscription_url'):
+        parts.extend([
+            'Hysteria:',
+            f"<code>{profile_data['hysteria_subscription_url']}</code>",
+            '',
+        ])
+
+    return '\n'.join(parts).strip()
 
 
 def _format_order_success(order: dict) -> str:
     paid_at = _format_dt(order.get('paid_at'))
-    return (
-        '<b>Оплата подтверждена</b>\n\n'
-        f"Логин: <code>{order['marzban_username']}</code>\n"
-        f"Подписка: {order['plan_title']}\n"
-        f"Активировано: {paid_at}\n\n"
-        'Ваша конфигурация:\n'
-        f"<code>{order['subscription_url']}</code>\n\n"
-        'Добавь ссылку в Nekoray / v2rayNG / Hiddify.'
-    )
+    parts = [
+        '<b>Подписка активирована</b>\n',
+        f"Тариф: {order['plan_title']}",
+        f"Оплачено: {paid_at}",
+        '',
+        '<b>Ссылки для подключения</b>',
+    ]
+
+    if order.get('vless_subscription_url'):
+        parts.extend([
+            'VLESS:',
+            f"<code>{order['vless_subscription_url']}</code>",
+            '',
+        ])
+
+    if order.get('hysteria_subscription_url'):
+        parts.extend([
+            'Hysteria:',
+            f"<code>{order['hysteria_subscription_url']}</code>",
+            '',
+        ])
+
+    parts.append('Используйте Nekoray, v2rayNG или Hiddify. Для Hysteria нужен клиент с поддержкой Hysteria 2.')
+    return '\n'.join(parts).strip()
 
 
 def _format_dt(value: str | None) -> str:

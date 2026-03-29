@@ -1,7 +1,7 @@
-from contextlib import asynccontextmanager
+﻿from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from .config import settings
 from .database import SessionLocal, engine
@@ -15,7 +15,7 @@ async def seed_plans() -> None:
         desired = {
             'starter': {
                 'title': '1 месяц',
-                'emoji': '\U0001F4C5',
+                'emoji': '📅',
                 'price_rub': settings.plan_starter_price,
                 'duration_days': settings.plan_starter_days,
                 'data_limit_gb': settings.plan_starter_gb,
@@ -58,6 +58,11 @@ async def seed_plans() -> None:
 async def lifespan(_: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS protocol VARCHAR(32) DEFAULT 'multi'"))
+        await conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS vless_username VARCHAR(255)"))
+        await conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS vless_subscription_url TEXT"))
+        await conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS hysteria_username VARCHAR(255)"))
+        await conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS hysteria_subscription_url TEXT"))
     await seed_plans()
     yield
 
