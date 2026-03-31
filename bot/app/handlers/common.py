@@ -17,6 +17,9 @@ from ..texts import APPS_TEXT, HELP_TEXT, SUPPORT_TEXT, WELCOME_TEXT
 
 router = Router()
 api = BackendClient()
+BACKEND_UNAVAILABLE_TEXT = (
+    "Сервис временно недоступен. Попробуйте еще раз через минуту."
+)
 
 
 @router.message(Command("start"))
@@ -27,7 +30,11 @@ async def start(message: Message) -> None:
 @router.message(Command("plans"))
 @router.message(F.text == "💳 Купить подписку")
 async def show_plans(message: Message) -> None:
-    profile_data = await api.get_profile(message.from_user.id)
+    try:
+        profile_data = await api.get_profile(message.from_user.id)
+    except httpx.HTTPError:
+        await message.answer(BACKEND_UNAVAILABLE_TEXT, reply_markup=main_menu())
+        return
     if profile_data["has_subscription"] and profile_data["status"] == "active":
         await message.answer(
             "У вас уже есть активная подписка. Ниже текущий профиль.",
@@ -41,7 +48,11 @@ async def show_plans(message: Message) -> None:
         )
         return
 
-    plans = await api.get_plans()
+    try:
+        plans = await api.get_plans()
+    except httpx.HTTPError:
+        await message.answer(BACKEND_UNAVAILABLE_TEXT, reply_markup=main_menu())
+        return
     await message.answer(
         "<b>Тарифы</b>\nПосле оплаты будет доступна ссылка VLESS.",
         parse_mode="HTML",
@@ -51,8 +62,14 @@ async def show_plans(message: Message) -> None:
 
 @router.message(F.text == "👤 Мой профиль")
 async def profile(message: Message) -> None:
+    try:
+        profile_data = await api.get_profile(message.from_user.id)
+    except httpx.HTTPError:
+        await message.answer(BACKEND_UNAVAILABLE_TEXT, reply_markup=main_menu())
+        return
+
     await message.answer(
-        _format_profile(await api.get_profile(message.from_user.id)),
+        _format_profile(profile_data),
         parse_mode="HTML",
         reply_markup=profile_actions_keyboard(),
         disable_web_page_preview=True,
@@ -85,7 +102,14 @@ async def menu_main(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "menu:plans")
 async def menu_plans(callback: CallbackQuery) -> None:
-    profile_data = await api.get_profile(callback.from_user.id)
+    try:
+        profile_data = await api.get_profile(callback.from_user.id)
+    except httpx.HTTPError:
+        await callback.message.answer(
+            BACKEND_UNAVAILABLE_TEXT, reply_markup=main_menu()
+        )
+        await callback.answer()
+        return
     if profile_data["has_subscription"] and profile_data["status"] == "active":
         await callback.message.answer(
             "У вас уже есть активная подписка. Ниже текущий профиль.",
@@ -100,7 +124,14 @@ async def menu_plans(callback: CallbackQuery) -> None:
         await callback.answer()
         return
 
-    plans = await api.get_plans()
+    try:
+        plans = await api.get_plans()
+    except httpx.HTTPError:
+        await callback.message.answer(
+            BACKEND_UNAVAILABLE_TEXT, reply_markup=main_menu()
+        )
+        await callback.answer()
+        return
     await callback.message.answer(
         "<b>Тарифы</b>\nПосле оплаты будет доступна ссылка VLESS.",
         parse_mode="HTML",
@@ -136,6 +167,12 @@ async def buy_plan(callback: CallbackQuery) -> None:
             await callback.answer()
             return
         raise
+    except httpx.HTTPError:
+        await callback.message.answer(
+            BACKEND_UNAVAILABLE_TEXT, reply_markup=main_menu()
+        )
+        await callback.answer()
+        return
 
     await callback.message.answer(
         (
@@ -155,7 +192,14 @@ async def buy_plan(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("check:"))
 async def check_payment(callback: CallbackQuery) -> None:
     order_id = callback.data.split(":", 1)[1]
-    order = await api.get_order(order_id)
+    try:
+        order = await api.get_order(order_id)
+    except httpx.HTTPError:
+        await callback.message.answer(
+            BACKEND_UNAVAILABLE_TEXT, reply_markup=main_menu()
+        )
+        await callback.answer()
+        return
 
     if order["status"] == "paid" and order.get("vless_subscription_url"):
         await callback.message.answer(
@@ -178,7 +222,14 @@ async def check_payment(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "profile:refresh")
 async def refresh_profile(callback: CallbackQuery) -> None:
-    profile_data = await api.refresh_profile(callback.from_user.id)
+    try:
+        profile_data = await api.refresh_profile(callback.from_user.id)
+    except httpx.HTTPError:
+        await callback.message.answer(
+            BACKEND_UNAVAILABLE_TEXT, reply_markup=main_menu()
+        )
+        await callback.answer()
+        return
     await callback.message.answer(
         _format_profile(profile_data),
         parse_mode="HTML",
