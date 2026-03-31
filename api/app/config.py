@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     legacy_vpn_issuer_token: str = ""
 
     vless_compat_domain: str = ""
+    vless_compat_hash: str = ""
     vless_compat_port: int = 443
     vless_compat_path: str = "/ws{hash}"
     vless_compat_sub_path: str = "/pac{hash}/sub"
@@ -72,6 +73,8 @@ class Settings(BaseSettings):
 
     @property
     def compat_hash(self) -> str:
+        if self.vless_compat_hash:
+            return self.vless_compat_hash
         if not self.telegram_bot_token:
             return "vpnbot00"
         return sha256(self.telegram_bot_token.encode("utf-8")).hexdigest()[:8]

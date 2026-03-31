@@ -9,7 +9,9 @@ WS_UPSTREAM_PORT="${PROXY_WS_UPSTREAM_PORT:-8444}"
 API_UPSTREAM_HOST="${PROXY_API_UPSTREAM_HOST:-api}"
 API_UPSTREAM_PORT="${PROXY_API_UPSTREAM_PORT:-8080}"
 
-if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
+if [ -n "${VLESS_COMPAT_HASH:-}" ]; then
+  COMPAT_HASH="${VLESS_COMPAT_HASH}"
+elif [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
   COMPAT_HASH="$(printf '%s' "${TELEGRAM_BOT_TOKEN}" | sha256sum | awk '{print substr($1, 1, 8)}')"
 else
   COMPAT_HASH="vpnbot00"
