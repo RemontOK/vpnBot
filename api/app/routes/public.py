@@ -1,6 +1,6 @@
-﻿from datetime import datetime, timedelta, timezone
+﻿from base64 import b64encode
+from datetime import datetime, timedelta, timezone
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -346,14 +346,16 @@ async def compat_subscription(
         raise HTTPException(status_code=404, detail="Subscription not found")
 
     user = await marzban.get_user(order.vless_username)
-    if not user or not user.get("subscription_url"):
+    compat_vless_url = marzban.build_compat_vless_url(
+        order.vless_uuid, order.vless_username
+    )
+    if not user or not compat_vless_url:
         raise HTTPException(status_code=404, detail="Subscription not found")
 
-    async with httpx.AsyncClient(timeout=20) as client:
-        upstream = await client.get(user["subscription_url"])
-
-    upstream.raise_for_status()
+    subscription_body = b64encode(f"{compat_vless_url}\n".encode("utf-8")).decode(
+        "ascii"
+    )
     return Response(
-        content=upstream.content,
-        media_type=upstream.headers.get("content-type", "text/plain"),
+        content=subscription_body,
+        media_type="text/plain",
     )
