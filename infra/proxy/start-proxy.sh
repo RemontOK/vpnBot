@@ -15,10 +15,19 @@ else
   COMPAT_HASH="vpnbot00"
 fi
 
-COMPAT_WS_PATH="${VLESS_COMPAT_PATH:-/ws{hash}}"
-COMPAT_WS_PATH="$(printf '%s' "$COMPAT_WS_PATH" | sed "s/{hash}/$COMPAT_HASH/g")"
-COMPAT_SUB_PATH="${VLESS_COMPAT_SUB_PATH:-/pac{hash}/sub}"
-COMPAT_SUB_PATH="$(printf '%s' "$COMPAT_SUB_PATH" | sed "s/{hash}/$COMPAT_HASH/g")"
+COMPAT_WS_PATH="${VLESS_COMPAT_PATH:-}"
+if [ -z "$COMPAT_WS_PATH" ]; then
+  COMPAT_WS_PATH="/ws$COMPAT_HASH"
+else
+  COMPAT_WS_PATH="$(printf '%s' "$COMPAT_WS_PATH" | sed "s/{hash}/$COMPAT_HASH/g")"
+fi
+
+COMPAT_SUB_PATH="${VLESS_COMPAT_SUB_PATH:-}"
+if [ -z "$COMPAT_SUB_PATH" ]; then
+  COMPAT_SUB_PATH="/pac$COMPAT_HASH/sub"
+else
+  COMPAT_SUB_PATH="$(printf '%s' "$COMPAT_SUB_PATH" | sed "s/{hash}/$COMPAT_HASH/g")"
+fi
 
 if [ ! -f "$CERT_PATH" ] || [ ! -f "$KEY_PATH" ]; then
   mkdir -p "$(dirname "$CERT_PATH")" "$(dirname "$KEY_PATH")"
