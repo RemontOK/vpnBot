@@ -1,4 +1,5 @@
 import random
+import re
 import string
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urljoin
@@ -134,6 +135,7 @@ class MarzbanClient:
         }
 
     async def _get_legacy_user(self, username: str) -> dict | None:
+        username = self._legacy_username(username)
         headers = self._legacy_headers()
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.get(
@@ -158,3 +160,10 @@ class MarzbanClient:
         if settings.legacy_vpn_issuer_token:
             headers["X-Legacy-Api-Token"] = settings.legacy_vpn_issuer_token
         return headers
+
+    @staticmethod
+    def _legacy_username(username: str) -> str:
+        match = re.match(r"^(tg\d+)", username or "")
+        if match:
+            return match.group(1)
+        return username
