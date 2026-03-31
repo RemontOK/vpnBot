@@ -11,19 +11,21 @@ from ..schemas import OrderCreateIn, OrderOut, PlanOut, ProfileOut
 from ..services.marzban import MarzbanClient
 from ..services.yookassa import YooKassaClient
 
-router = APIRouter(prefix='/api', tags=['public'])
+router = APIRouter(prefix="/api", tags=["public"])
 marzban = MarzbanClient()
 yookassa = YooKassaClient()
 
 
-@router.get('/health')
+@router.get("/health")
 async def health() -> dict:
-    return {'ok': True}
+    return {"ok": True}
 
 
-@router.get('/plans', response_model=list[PlanOut])
+@router.get("/plans", response_model=list[PlanOut])
 async def plans(db: AsyncSession = Depends(get_db)) -> list[PlanOut]:
-    rows = await db.scalars(select(Plan).where(Plan.is_active.is_(True)).order_by(Plan.price_rub.asc()))
+    rows = await db.scalars(
+        select(Plan).where(Plan.is_active.is_(True)).order_by(Plan.price_rub.asc())
+    )
     return [
         PlanOut(
             id=p.id,
@@ -38,30 +40,34 @@ async def plans(db: AsyncSession = Depends(get_db)) -> list[PlanOut]:
     ]
 
 
-@router.post('/orders', response_model=OrderOut)
-async def create_order(payload: OrderCreateIn, db: AsyncSession = Depends(get_db)) -> OrderOut:
+@router.post("/orders", response_model=OrderOut)
+async def create_order(
+    payload: OrderCreateIn, db: AsyncSession = Depends(get_db)
+) -> OrderOut:
     plan = await db.get(Plan, payload.plan_id)
     if not plan or not plan.is_active:
-        raise HTTPException(status_code=404, detail='Plan not found')
+        raise HTTPException(status_code=404, detail="Plan not found")
 
-    customer = await _get_or_create_customer(db, payload.telegram_id, payload.username, payload.first_name)
+    customer = await _get_or_create_customer(
+        db, payload.telegram_id, payload.username, payload.first_name
+    )
     active_profile = await _build_profile(customer)
-    if active_profile and active_profile.status == 'active':
+    if active_profile and active_profile.status == "active":
         raise HTTPException(
             status_code=409,
             detail={
-                'message': 'Subscription already active',
-                'profile': active_profile.model_dump(mode='json'),
+                "message": "Subscription already active",
+                "profile": active_profile.model_dump(mode="json"),
             },
         )
 
     order = Order(
         customer_id=customer.id,
         plan_id=plan.id,
-        protocol='multi',
+        protocol="multi",
         amount_rub=plan.price_rub,
         status=OrderStatus.pending,
-        yookassa_payment_id=f'draft-{customer.telegram_id}-{int(datetime.now(timezone.utc).timestamp())}',
+        yookassa_payment_id=f"draft-{customer.telegram_id}-{int(datetime.now(timezone.utc).timestamp())}",
         yookassa_confirmation_url=None,
     )
     db.add(order)
@@ -70,12 +76,14 @@ async def create_order(payload: OrderCreateIn, db: AsyncSession = Depends(get_db
     payment = await yookassa.create_payment(
         order_id=order.id,
         amount_rub=plan.price_rub,
-        description=f'{plan.title} / VLESS+HYSTERIA / tg:{customer.telegram_id}',
+        description=f"{plan.title} / VLESS+HYSTERIA / tg:{customer.telegram_id}",
     )
 
-    order.yookassa_payment_id = payment['id']
-    order.yookassa_confirmation_url = payment.get('confirmation', {}).get('confirmation_url')
-    order.status = _map_payment_status(payment.get('status', 'pending'))
+    order.yookassa_payment_id = payment["id"]
+    order.yookassa_confirmation_url = payment.get("confirmation", {}).get(
+        "confirmation_url"
+    )
+    order.status = _map_payment_status(payment.get("status", "pending"))
 
     await db.commit()
     await db.refresh(order)
@@ -83,7 +91,7 @@ async def create_order(payload: OrderCreateIn, db: AsyncSession = Depends(get_db
     return _to_order_out(order, plan)
 
 
-@router.get('/orders/{order_id}', response_model=OrderOut)
+@router.get("/orders/{order_id}", response_model=OrderOut)
 async def order_status(order_id: str, db: AsyncSession = Depends(get_db)) -> OrderOut:
     order = await db.scalar(
         select(Order)
@@ -91,7 +99,7 @@ async def order_status(order_id: str, db: AsyncSession = Depends(get_db)) -> Ord
         .options(selectinload(Order.plan), selectinload(Order.customer))
     )
     if not order:
-        raise HTTPException(status_code=404, detail='Order not found')
+        raise HTTPException(status_code=404, detail="Order not found")
 
     if order.status in {OrderStatus.pending, OrderStatus.waiting_for_capture}:
         await _sync_order_payment(order)
@@ -101,7 +109,7 @@ async def order_status(order_id: str, db: AsyncSession = Depends(get_db)) -> Ord
     return _to_order_out(order, order.plan)
 
 
-@router.get('/profile/{telegram_id}', response_model=ProfileOut)
+@router.get("/profile/{telegram_id}", response_model=ProfileOut)
 async def profile(telegram_id: int, db: AsyncSession = Depends(get_db)) -> ProfileOut:
     customer = await db.scalar(
         select(Customer)
@@ -109,42 +117,57 @@ async def profile(telegram_id: int, db: AsyncSession = Depends(get_db)) -> Profi
         .options(selectinload(Customer.orders).selectinload(Order.plan))
     )
     if not customer:
-        return ProfileOut(has_subscription=False, status='new')
+        return ProfileOut(has_subscription=False, status="new")
 
     profile_data = await _build_profile(customer)
-    return profile_data or ProfileOut(has_subscription=False, status='inactive')
+    return profile_data or ProfileOut(has_subscription=False, status="inactive")
 
 
-@router.post('/profile/{telegram_id}/refresh', response_model=ProfileOut)
-async def refresh_profile(telegram_id: int, db: AsyncSession = Depends(get_db)) -> ProfileOut:
+@router.post("/profile/{telegram_id}/refresh", response_model=ProfileOut)
+async def refresh_profile(
+    telegram_id: int, db: AsyncSession = Depends(get_db)
+) -> ProfileOut:
     customer = await db.scalar(
         select(Customer)
         .where(Customer.telegram_id == telegram_id)
         .options(selectinload(Customer.orders).selectinload(Order.plan))
     )
     if not customer:
-        return ProfileOut(has_subscription=False, status='new')
+        return ProfileOut(has_subscription=False, status="new")
 
-    paid_orders = [order for order in customer.orders if order.status == OrderStatus.paid and order.paid_at]
+    paid_orders = [
+        order
+        for order in customer.orders
+        if order.status == OrderStatus.paid and order.paid_at
+    ]
     if not paid_orders:
-        return ProfileOut(has_subscription=False, status='inactive')
+        return ProfileOut(has_subscription=False, status="inactive")
 
     latest = max(paid_orders, key=lambda item: item.paid_at or item.created_at)
 
     recreate_vless = True
     if latest.vless_username:
         user = await marzban.get_user(latest.vless_username)
-        recreate_vless = not user or (user.get('status') and user.get('status') != 'active')
+        recreate_vless = not user or (
+            user.get("status") and user.get("status") != "active"
+        )
+        if user:
+            latest.vless_username = user.get("username") or latest.vless_username
+            latest.vless_subscription_url = (
+                user.get("subscription_url") or latest.vless_subscription_url
+            )
+            await db.commit()
+            await db.refresh(latest)
 
     if recreate_vless:
         vless = await marzban.create_user(
             telegram_id=latest.customer.telegram_id,
             duration_days=latest.plan.duration_days,
             data_limit_gb=latest.plan.data_limit_gb,
-            protocol='vless',
+            protocol="vless",
         )
-        latest.vless_username = vless['username']
-        latest.vless_subscription_url = vless['subscription_url']
+        latest.vless_username = vless["username"]
+        latest.vless_subscription_url = vless["subscription_url"]
         await db.commit()
         await db.refresh(latest)
 
@@ -154,7 +177,7 @@ async def refresh_profile(telegram_id: int, db: AsyncSession = Depends(get_db)) 
         .options(selectinload(Customer.orders).selectinload(Order.plan))
     )
     profile_data = await _build_profile(refreshed_customer)
-    return profile_data or ProfileOut(has_subscription=False, status='inactive')
+    return profile_data or ProfileOut(has_subscription=False, status="inactive")
 
 
 async def _get_or_create_customer(
@@ -191,10 +214,10 @@ async def _provision_order(order: Order) -> None:
             telegram_id=order.customer.telegram_id,
             duration_days=order.plan.duration_days,
             data_limit_gb=order.plan.data_limit_gb,
-            protocol='vless',
+            protocol="vless",
         )
-        order.vless_username = vless['username']
-        order.vless_subscription_url = vless['subscription_url']
+        order.vless_username = vless["username"]
+        order.vless_subscription_url = vless["subscription_url"]
 
     order.status = OrderStatus.paid
     if not order.paid_at:
@@ -203,26 +226,32 @@ async def _provision_order(order: Order) -> None:
 
 async def _sync_order_payment(order: Order) -> None:
     payment = await yookassa.get_payment(order.yookassa_payment_id)
-    order.status = _map_payment_status(payment.get('status', 'pending'))
+    order.status = _map_payment_status(payment.get("status", "pending"))
     if order.status == OrderStatus.paid:
         await _provision_order(order)
 
 
 async def _build_profile(customer: Customer) -> ProfileOut | None:
-    paid_orders = [order for order in customer.orders if order.status == OrderStatus.paid and order.paid_at]
+    paid_orders = [
+        order
+        for order in customer.orders
+        if order.status == OrderStatus.paid and order.paid_at
+    ]
     if not paid_orders:
         return None
 
     latest = max(paid_orders, key=lambda item: item.paid_at or item.created_at)
-    expires_at = (latest.paid_at or latest.created_at) + timedelta(days=latest.plan.duration_days)
+    expires_at = (latest.paid_at or latest.created_at) + timedelta(
+        days=latest.plan.duration_days
+    )
     now = datetime.now(timezone.utc)
     days_left = max(0, (expires_at - now).days)
-    status = 'active' if expires_at > now else 'expired'
+    status = "active" if expires_at > now else "expired"
 
     if latest.vless_username:
         user = await marzban.get_user(latest.vless_username)
-        if not user or (user.get('status') and user.get('status') != 'active'):
-            status = 'inactive'
+        if not user or (user.get("status") and user.get("status") != "active"):
+            status = "inactive"
 
     return ProfileOut(
         has_subscription=True,
@@ -246,7 +275,7 @@ def _to_order_out(order: Order, plan: Plan) -> OrderOut:
         id=order.id,
         status=order.status,
         amount_rub=order.amount_rub,
-        protocol='multi',
+        protocol="multi",
         plan_title=plan.title,
         duration_days=plan.duration_days,
         data_limit_gb=plan.data_limit_gb,
@@ -261,11 +290,11 @@ def _to_order_out(order: Order, plan: Plan) -> OrderOut:
 
 
 def _map_payment_status(status: str) -> OrderStatus:
-    normalized = (status or '').strip().lower()
-    if normalized == 'succeeded':
+    normalized = (status or "").strip().lower()
+    if normalized == "succeeded":
         return OrderStatus.paid
-    if normalized == 'waiting_for_capture':
+    if normalized == "waiting_for_capture":
         return OrderStatus.waiting_for_capture
-    if normalized == 'canceled':
+    if normalized == "canceled":
         return OrderStatus.canceled
     return OrderStatus.pending
