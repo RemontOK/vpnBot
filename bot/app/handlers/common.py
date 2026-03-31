@@ -215,10 +215,18 @@ def _format_profile(profile_data: dict) -> str:
         return "\n".join(parts).strip()
 
     parts.extend(["", "<b>Ссылка для подключения</b>"])
-    if profile_data.get("vless_subscription_url"):
+    if profile_data.get("vless_url"):
         parts.extend(
             [
                 "VLESS:",
+                f"<code>{profile_data['vless_url']}</code>",
+                "",
+            ]
+        )
+    if profile_data.get("vless_subscription_url"):
+        parts.extend(
+            [
+                "Подписка:",
                 f"<code>{profile_data['vless_subscription_url']}</code>",
                 "",
             ]
@@ -237,10 +245,19 @@ def _format_order_success(order: dict) -> str:
         "<b>Ссылка для подключения</b>",
     ]
 
-    if order.get("vless_subscription_url"):
+    if order.get("vless_url"):
         parts.extend(
             [
                 "VLESS:",
+                f"<code>{order['vless_url']}</code>",
+                "",
+            ]
+        )
+
+    if order.get("vless_subscription_url"):
+        parts.extend(
+            [
+                "Подписка:",
                 f"<code>{order['vless_subscription_url']}</code>",
                 "",
             ]

@@ -1,3 +1,6 @@
+from hashlib import sha256
+from urllib.parse import urlparse
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +13,7 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     api_host: str = "0.0.0.0"
     api_port: int = 8080
+    telegram_bot_token: str = ""
 
     postgres_user: str = "vpn"
     postgres_password: str = "vpnpass"
@@ -38,6 +42,15 @@ class Settings(BaseSettings):
     legacy_vpn_issuer_url: str = ""
     legacy_vpn_issuer_token: str = ""
 
+    vless_compat_domain: str = ""
+    vless_compat_port: int = 443
+    vless_compat_path: str = "/ws{hash}"
+    vless_compat_sub_path: str = "/pac{hash}/sub"
+    vless_compat_sni: str = ""
+    vless_compat_security: str = "tls"
+    vless_compat_fp: str = "chrome"
+    vless_compat_type: str = "ws"
+
     plan_starter_price: int = 199
     plan_starter_days: int = 30
     plan_starter_gb: int = 100
@@ -56,6 +69,27 @@ class Settings(BaseSettings):
             f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
+
+    @property
+    def compat_hash(self) -> str:
+        if not self.telegram_bot_token:
+            return "vpnbot00"
+        return sha256(self.telegram_bot_token.encode("utf-8")).hexdigest()[:8]
+
+    @property
+    def compat_domain(self) -> str:
+        if self.vless_compat_domain:
+            return self.vless_compat_domain
+        parsed = urlparse(self.marzban_public_base_url or self.marzban_base_url)
+        return parsed.hostname or "127.0.0.1"
+
+    @property
+    def compat_sub_scheme(self) -> str:
+        return "https" if self.vless_compat_security in {"tls", "reality"} else "http"
+
+    @property
+    def compat_sni(self) -> str:
+        return self.vless_compat_sni or self.compat_domain
 
 
 settings = Settings()

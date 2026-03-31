@@ -1,10 +1,12 @@
 ﻿from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from ..config import settings
 from ..database import get_db
 from ..models import Customer, Order, OrderStatus, Plan
 from ..schemas import OrderCreateIn, OrderOut, PlanOut, ProfileOut
@@ -12,6 +14,7 @@ from ..services.marzban import MarzbanClient
 from ..services.yookassa import YooKassaClient
 
 router = APIRouter(prefix="/api", tags=["public"])
+compat_router = APIRouter(tags=["compat"])
 marzban = MarzbanClient()
 yookassa = YooKassaClient()
 
@@ -156,6 +159,7 @@ async def refresh_profile(
             latest.vless_subscription_url = (
                 user.get("subscription_url") or latest.vless_subscription_url
             )
+            latest.vless_uuid = user.get("uuid") or latest.vless_uuid
             await db.commit()
             await db.refresh(latest)
 
@@ -168,6 +172,7 @@ async def refresh_profile(
         )
         latest.vless_username = vless["username"]
         latest.vless_subscription_url = vless["subscription_url"]
+        latest.vless_uuid = vless.get("uuid")
         await db.commit()
         await db.refresh(latest)
 
@@ -218,6 +223,7 @@ async def _provision_order(order: Order) -> None:
         )
         order.vless_username = vless["username"]
         order.vless_subscription_url = vless["subscription_url"]
+        order.vless_uuid = vless.get("uuid")
 
     order.status = OrderStatus.paid
     if not order.paid_at:
@@ -252,6 +258,11 @@ async def _build_profile(customer: Customer) -> ProfileOut | None:
         user = await marzban.get_user(latest.vless_username)
         if not user or (user.get("status") and user.get("status") != "active"):
             status = "inactive"
+        else:
+            latest.vless_uuid = user.get("uuid") or latest.vless_uuid
+            latest.vless_subscription_url = (
+                user.get("subscription_url") or latest.vless_subscription_url
+            )
 
     return ProfileOut(
         has_subscription=True,
@@ -262,7 +273,10 @@ async def _build_profile(customer: Customer) -> ProfileOut | None:
         amount_rub=latest.amount_rub,
         days_left=days_left,
         expires_at=expires_at,
-        vless_subscription_url=latest.vless_subscription_url,
+        vless_url=_display_vless_url(latest.vless_uuid, latest.vless_username),
+        vless_subscription_url=_display_subscription_url(
+            latest.vless_uuid, latest.vless_subscription_url
+        ),
         vless_username=latest.vless_username,
         hysteria_subscription_url=None,
         hysteria_username=None,
@@ -280,7 +294,10 @@ def _to_order_out(order: Order, plan: Plan) -> OrderOut:
         duration_days=plan.duration_days,
         data_limit_gb=plan.data_limit_gb,
         confirmation_url=order.yookassa_confirmation_url,
-        vless_subscription_url=order.vless_subscription_url,
+        vless_url=_display_vless_url(order.vless_uuid, order.vless_username),
+        vless_subscription_url=_display_subscription_url(
+            order.vless_uuid, order.vless_subscription_url
+        ),
         vless_username=order.vless_username,
         hysteria_subscription_url=None,
         hysteria_username=None,
@@ -298,3 +315,45 @@ def _map_payment_status(status: str) -> OrderStatus:
     if normalized == "canceled":
         return OrderStatus.canceled
     return OrderStatus.pending
+
+
+def _display_vless_url(vless_uuid: str | None, username: str | None) -> str | None:
+    return marzban.build_compat_vless_url(vless_uuid, username)
+
+
+def _display_subscription_url(
+    vless_uuid: str | None, raw_subscription_url: str | None
+) -> str | None:
+    return marzban.build_compat_subscription_url(vless_uuid) or raw_subscription_url
+
+
+@compat_router.get("/pac{hash}/sub")
+async def compat_subscription(
+    hash: str,
+    id: str = Query(..., min_length=1),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    if hash != settings.compat_hash:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    order = await db.scalar(
+        select(Order)
+        .where(Order.vless_uuid == id)
+        .options(selectinload(Order.customer), selectinload(Order.plan))
+        .order_by(Order.paid_at.desc(), Order.created_at.desc())
+    )
+    if not order or not order.vless_username:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    user = await marzban.get_user(order.vless_username)
+    if not user or not user.get("subscription_url"):
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        upstream = await client.get(user["subscription_url"])
+
+    upstream.raise_for_status()
+    return Response(
+        content=upstream.content,
+        media_type=upstream.headers.get("content-type", "text/plain"),
+    )
