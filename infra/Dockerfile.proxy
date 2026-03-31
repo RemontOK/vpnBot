@@ -1,0 +1,10 @@
+FROM nginx:1.27-alpine
+
+RUN apk add --no-cache gettext openssl
+
+COPY infra/proxy/nginx.conf.template /etc/nginx/templates/nginx.conf.template
+COPY infra/proxy/start-proxy.sh /start-proxy.sh
+
+RUN chmod +x /start-proxy.sh
+
+CMD ["/start-proxy.sh"]

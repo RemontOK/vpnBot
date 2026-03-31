@@ -10,14 +10,15 @@ Telegram bot for selling VPN subscriptions through YooKassa with automatic accou
 - YooKassa payment flow
 - Manual payment check button
 - Automatic Marzban user creation after payment
-- One payment gives access to both `VLESS` and `Hysteria`
+- Old-style compatibility links for `VLESS WS TLS`
+- Built-in HTTPS reverse proxy for `/pac{hash}/sub` and `/ws{hash}`
 
 ## Project structure
 
 - `bot/` - Telegram bot
 - `api/` - backend API
 - `infra/` - Dockerfiles
-- `docker-compose.yml` - local stack
+- `docker-compose.yml` - app + proxy stack
 
 ## Quick start
 
@@ -34,6 +35,7 @@ cp .env.example .env
 - `YOOKASSA_SECRET_KEY`
 - `YOOKASSA_RETURN_URL`
 - `MARZBAN_*`
+- `VLESS_COMPAT_*`
 
 3. Start services:
 
@@ -47,6 +49,12 @@ docker compose up -d --build
 curl http://localhost:8080/api/health
 ```
 
+5. Check proxy:
+
+```bash
+curl -k https://localhost/healthz
+```
+
 ## YooKassa webhook
 
 Set this URL in YooKassa:
@@ -55,7 +63,7 @@ Set this URL in YooKassa:
 https://YOUR_DOMAIN/api/webhooks/yookassa
 ```
 
-You need public HTTPS access for production webhook delivery.
+The bundled `proxy` service can expose this path on `443`.
 
 ## Marzban integration
 
@@ -81,12 +89,33 @@ MARZBAN_HYSTERIA_INBOUND_TAG=HYSTERIA 2
 
 The inbound tag names must match the actual inbound names in your Marzban panel.
 
+For old-style VLESS WS TLS links, point Marzban/Xray to a plain WS inbound and let the local `proxy` terminate TLS:
+
+```env
+MARZBAN_USE_MOCK=false
+MARZBAN_VLESS_PROTOCOL=vless
+MARZBAN_VLESS_INBOUND_TAG=VLESS WS TLS
+VLESS_COMPAT_DOMAIN=YOUR_DOMAIN
+VLESS_COMPAT_PORT=443
+VLESS_COMPAT_PATH=/ws{hash}
+VLESS_COMPAT_SUB_PATH=/pac{hash}/sub
+VLESS_COMPAT_SNI=YOUR_DOMAIN
+VLESS_COMPAT_SECURITY=tls
+PROXY_WS_UPSTREAM_HOST=host.docker.internal
+PROXY_WS_UPSTREAM_PORT=8444
+```
+
+If `/certs/tls.crt` and `/certs/tls.key` are absent, the proxy generates a self-signed certificate at startup. For production, mount real files into `infra/proxy/certs/`.
+
 ## Bot flow
 
 1. User chooses a plan.
 2. Bot creates a payment.
-3. After payment confirmation, backend creates both Marzban users: `VLESS` and `Hysteria`.
-4. User can open profile anytime and copy either link while subscription is active.
+3. After payment confirmation, backend creates the Marzban user and stores its UUID.
+4. API returns compatibility links:
+   - `vless://...type=ws...path=/ws{hash}`
+   - `https://DOMAIN/pac{hash}/sub?id=UUID`
+5. `proxy` serves both routes on `443`.
 
 ## Security notes
 

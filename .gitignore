@@ -13,3 +13,5 @@
 *.db
 *.pem
 *.key
+infra/proxy/certs/*
+!infra/proxy/certs/.gitkeep

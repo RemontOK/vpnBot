@@ -25,7 +25,7 @@ services:
     depends_on:
       - postgres
     ports:
-      - "${API_PORT:-8080}:8080"
+      - "127.0.0.1:${API_PORT:-8080}:8080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -39,6 +39,24 @@ services:
       - .env
     depends_on:
       - api
+
+  proxy:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.proxy
+    container_name: vpn_bot_proxy
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - api
+    ports:
+      - "${PROXY_HTTP_PORT:-80}:80"
+      - "${PROXY_HTTPS_PORT:-443}:443"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./infra/proxy/certs:/certs
 
 volumes:
   postgres_data:
